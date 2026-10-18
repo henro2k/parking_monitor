@@ -40,11 +40,15 @@ const int BTN_USR2 = D7;               // active-low
 
 // RGB565 colors
 const uint16_t COLOR_BLACK = 0x0000;
-const uint16_t COLOR_GREEN = 0x07E0;
 const uint16_t COLOR_RED   = 0xF800;
 
 WebServer server(80);
 uint16_t currentColor = 0x1234;        // arbitrary value so the first call always draws
+
+// Flashing state: 1 Hz = 1000 ms red, then 1000 ms black
+const unsigned long FLASH_HALF_PERIOD_MS = 1000;
+bool flashing = false;
+unsigned long lastToggleMs = 0;
 
 // Fill the whole screen, but only redraw when the color actually changes.
 void showColor(uint16_t color) {
@@ -54,8 +58,12 @@ void showColor(uint16_t color) {
 }
 
 void handleParking() {
-  Serial.println("parking.html requested -> RED");
-  showColor(COLOR_RED);
+  Serial.println("parking.html requested -> flashing red");
+  if (!flashing) {                     // repeat requests don't restart the flash cycle
+    flashing = true;
+    lastToggleMs = millis();
+    showColor(COLOR_RED);
+  }
   server.send(200, "text/html",
               "<!DOCTYPE html><html><head><title>Parking</title></head>"
               "<body><h1>Parking</h1></body></html>");
@@ -74,7 +82,7 @@ void setup() {
   // Display init (taken from Seeed's wiki examples)
   display.begin<Board_XIAO_0inch96_LCD<13, 12>,
                 Config_Seeed_0inch96_LCD_ST7789>();
-  showColor(COLOR_BLACK);              // black while connecting
+  showColor(COLOR_BLACK);              // screen off (black) until /parking.html is requested
 
   // Connect to WiFi and wait for a DHCP-assigned IP address
   WiFi.mode(WIFI_STA);
@@ -94,8 +102,6 @@ void setup() {
   Serial.print("Got IP address: ");
   Serial.println(WiFi.localIP());
 
-  showColor(COLOR_GREEN);              // IP assigned -> green
-
   // Web server on port 80
   server.on("/parking.html", HTTP_GET, handleParking);
   server.onNotFound(handleNotFound);
@@ -106,8 +112,15 @@ void setup() {
 void loop() {
   server.handleClient();
 
-  // Either user button resets the display to green
+  // Flash red/black at 1 Hz while active (non-blocking, so the web server stays responsive)
+  if (flashing && (millis() - lastToggleMs >= FLASH_HALF_PERIOD_MS)) {
+    lastToggleMs += FLASH_HALF_PERIOD_MS;
+    showColor(currentColor == COLOR_RED ? COLOR_BLACK : COLOR_RED);
+  }
+
+  // Either user button stops the flashing and turns the display off (black)
   if (digitalRead(BTN_USR1) == LOW || digitalRead(BTN_USR2) == LOW) {
-    showColor(COLOR_GREEN);
+    flashing = false;
+    showColor(COLOR_BLACK);
   }
 }
